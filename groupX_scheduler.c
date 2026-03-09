@@ -169,12 +169,20 @@ void print_log(process_t *ready_process, int time) {
  * ========================================================= */
 
 void arrival(process_t *p) {
-    /* TODO */
-    (void)p;
+    //changes process state from NEW to SUBMITTED or READY//
+    p -> state = SUBMITTED;
+
+    //put the process to corresponding queue//
+    int proc_type = p -> init_prio;
+    if(proc_type == 0){
+        queue_push(&rt_queue,p); // to real time queue//
+    }else if(proc_type > 0 && proc_type <= 3){
+        queue_push(&sub_queue,p); // to sub queue //
+    }
 }
 
 void admit_process(void) {
-    /* TODO */
+    //scan submission queue//
 }
 
 process_t *dispatch(process_t **cur_running_rt) {
