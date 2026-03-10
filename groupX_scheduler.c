@@ -295,15 +295,18 @@ void post_run(process_t *p, process_t **cur_running_rt) {
 
 
 int termination_check(int processNo, int process_count, process_t *cur_running_rt) {
-    /* TODO or reuse the provided logic 
-     You may keep this logic or adjust as long as termination condition remains correct. */
-    return  processNo == process_count  &&
-            cur_running_rt == NULL      &&
-            queue_empty(&rt_queue)      &&
-            queue_empty(&sub_queue)     &&
-            queue_empty(&user_queue[0]) &&
-            queue_empty(&user_queue[1]) &&
-            queue_empty(&user_queue[2]);
+    
+    if(processNo == process_count  &&
+        cur_running_rt == NULL      &&
+        queue_empty(&rt_queue)      &&
+        queue_empty(&sub_queue)     &&
+        queue_empty(&user_queue[0]) &&
+        queue_empty(&user_queue[1]) &&
+        queue_empty(&user_queue[2])
+    ){ return 1; 
+    } else {
+        return 0;
+    }
 }
 
 
