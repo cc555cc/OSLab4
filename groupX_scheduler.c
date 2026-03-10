@@ -183,7 +183,7 @@ void arrival(process_t *p) {
 
 void admit_process(void) {
     static int next_mem_start = 64;
-    queue_t waiting;
+    queue_t waiting; 
 
     queue_init(&waiting);
 
@@ -194,36 +194,63 @@ void admit_process(void) {
             continue;
         }
 
+        //check if memory available and resource available//
         if (memory >= p->mem_req &&
             printers >= p->printers &&
             scanners >= p->scanners &&
             modems >= p->modems &&
             cd_drives >= p->cds) {
-            p->mem_start = next_mem_start;
-            next_mem_start += p->mem_req;
+    
+            p->mem_start = next_mem_start; //stores starting memory address of the process//
+            next_mem_start += p->mem_req; //moves the next free starting address by the amount of memory the process took//
 
+            //take corresponding resource//
             memory -= p->mem_req;
             printers -= p->printers;
             scanners -= p->scanners;
             modems -= p->modems;
             cd_drives -= p->cds;
 
-            p->state = READY;
-            queue_push(&user_queue[p->init_prio - 1], p);
+            p->state = READY; //change the state of the process to ready//
+            queue_push(&user_queue[p->init_prio - 1], p); //push the ready process to the user queue//
         } else {
-            queue_push(&waiting, p);
+            queue_push(&waiting, p); //resources or memory not enough, so put the process in waiting for now//
         }
     }
 
-    while (!queue_empty(&waiting)) {
-        queue_push(&sub_queue, queue_pop(&waiting));
+    //put process in waiting in this tick back to the sub_queue//
+    while (!queue_empty(&waiting)) { 
+        queue_push(&sub_queue, queue_pop(&waiting)); 
     }
 }
 
 process_t *dispatch(process_t **cur_running_rt) {
-    /* TODO */
-    (void)cur_running_rt;
-    return NULL;
+    process_t *next_p = NULL; //stores the pointer to the next process to be dispatched//
+
+    //check whether there is an active real time process//
+    if (*cur_running_rt != NULL) { 
+        (*cur_running_rt)->state = RUNNING;
+        return *cur_running_rt; //return pointer of the real time process: continue executing that process//
+    }
+
+    //checkeahc queue by priotrity and their emptiness//
+    if (!queue_empty(&rt_queue)) {
+        next_p = queue_pop(&rt_queue); 
+        *cur_running_rt = next_p;
+    } else if (!queue_empty(&user_queue[0])) {
+        next_p = queue_pop(&user_queue[0]);
+    } else if (!queue_empty(&user_queue[1])) {
+        next_p = queue_pop(&user_queue[1]);
+    } else if (!queue_empty(&user_queue[2])) {
+        next_p = queue_pop(&user_queue[2]);
+    }
+
+    //change process state to RUNNING//
+    if (next_p != NULL) {
+        next_p -> state = RUNNING;
+    }
+
+    return next_p;
 }
 
 void run_process(process_t *p) {
