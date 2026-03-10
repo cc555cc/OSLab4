@@ -253,15 +253,44 @@ process_t *dispatch(process_t **cur_running_rt) {
     return next_p;
 }
 
+//changes cpu_remain value in a process from argument//
 void run_process(process_t *p) {
-    /* TODO */
-    (void)p;
+    if(p != NULL){
+        p->cpu_remain--;
+    }
 }
 
+
 void post_run(process_t *p, process_t **cur_running_rt) {
-    /* TODO */
-    (void)p;
-    (void)cur_running_rt;
+    if(p != NULL){
+        if(p->cpu_remain == 0){
+            //assign TERMINATED state//
+            proc_state_t terminated = TERMINATED;
+            p->state = terminated;
+            
+            //release resource and memory//
+            if(p->current_prio > 0){
+                memory += p->mem_req;
+                printers += p->printers;
+                scanners += p->scanners;
+                modems += p->modems;
+                cd_drives += p->cds;
+            }
+
+            //it is a real time process//
+            if(*cur_running_rt == p){
+                *cur_running_rt = NULL;
+            }
+        }else{ //the process is not finished//
+            p->state = READY;
+
+            if(p->current_prio > 0){ //user process//
+                queue_push(&user_queue[p->current_prio - 1], p); //push back to corresponding queue//
+            }else{
+                *cur_running_rt = p; 
+            }
+        }
+    }
 }
 
 
