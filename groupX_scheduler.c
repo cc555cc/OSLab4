@@ -182,7 +182,42 @@ void arrival(process_t *p) {
 }
 
 void admit_process(void) {
-    //scan submission queue//
+    static int next_mem_start = 64;
+    queue_t waiting;
+
+    queue_init(&waiting);
+
+    while (!queue_empty(&sub_queue)) {
+        process_t *p = queue_pop(&sub_queue);
+
+        if (p == NULL) {
+            continue;
+        }
+
+        if (memory >= p->mem_req &&
+            printers >= p->printers &&
+            scanners >= p->scanners &&
+            modems >= p->modems &&
+            cd_drives >= p->cds) {
+            p->mem_start = next_mem_start;
+            next_mem_start += p->mem_req;
+
+            memory -= p->mem_req;
+            printers -= p->printers;
+            scanners -= p->scanners;
+            modems -= p->modems;
+            cd_drives -= p->cds;
+
+            p->state = READY;
+            queue_push(&user_queue[p->init_prio - 1], p);
+        } else {
+            queue_push(&waiting, p);
+        }
+    }
+
+    while (!queue_empty(&waiting)) {
+        queue_push(&sub_queue, queue_pop(&waiting));
+    }
 }
 
 process_t *dispatch(process_t **cur_running_rt) {
