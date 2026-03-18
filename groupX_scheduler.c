@@ -284,7 +284,10 @@ void post_run(process_t *p, process_t **cur_running_rt) {
         }else{ //the process is not finished//
             p->state = READY;
 
-            if(p->current_prio > 0){ //user process//
+            if(p->current_prio > 0 && p->current_prio < 3){ //user process: demotion//
+                p->current_prio+=1;
+                queue_push(&user_queue[p->current_prio - 1], p); //push back to corresponding queue//
+            }else if(p->current_prio == 3){
                 queue_push(&user_queue[p->current_prio - 1], p); //push back to corresponding queue//
             }else{
                 *cur_running_rt = p; 

@@ -1,0 +1,17 @@
+real time process:execute immediately
+user processes: use three-level feedback scheduler, base quantum = 1 
+
+time++ for each iteration
+steps:
+1. arrival: 
+  - scan scheduling lists
+  - transfer job with arrival time == current time
+2. examine submission queues
+  - real time job --> execute, can continues to run until completion
+  - if real time job is running, no user job for execution
+3. when real time queue is empty:
+  - lower priority feedback scheduler becomes active
+  - user job enter submission queue
+  - schedule scan submission queue (FIFO)
+  - admits user jobs if the job is at the head of the submission queue can be fully satifiesd by both available memory and all requested I/O Requests
+
