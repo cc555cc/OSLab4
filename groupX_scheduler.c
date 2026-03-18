@@ -169,57 +169,48 @@ void print_log(process_t *ready_process, int time) {
  * ========================================================= */
 
 void arrival(process_t *p) {
-    //changes process state from NEW to SUBMITTED or READY//
-    p -> state = SUBMITTED;
+    if (p == NULL) {
+        return;
+    }
 
-    //put the process to corresponding queue//
-    int proc_type = p -> init_prio;
-    if(proc_type == 0){
-        queue_push(&rt_queue,p); // to real time queue//
-    }else if(proc_type > 0 && proc_type <= 3){
-        queue_push(&sub_queue,p); // to sub queue //
+    /* RT jobs become ready immediately; user jobs wait for admission. */
+    if (p->init_prio == 0) {
+        p->state = READY;
+        p->current_prio = 0;
+        p->mem_req = memory_real_time;
+        p->mem_start = 0;
+        queue_push(&rt_queue, p);
+    } else if (p->init_prio >= 1 && p->init_prio <= 3) {
+        p->state = SUBMITTED;
+        p->current_prio = p->init_prio;
+        queue_push(&sub_queue, p);
     }
 }
 
 void admit_process(void) {
-    queue_t waiting;
-    queue_init(&waiting);
-
     while (!queue_empty(&sub_queue)) {
-        process_t *p = queue_pop(&sub_queue);
+        process_t *p = queue_peek(&sub_queue);
 
-        if (p == NULL) {
-            continue;
+        /*
+         * The lab requires FIFO admission at the head of the submission queue.
+         * If the head job cannot be fully admitted yet, later jobs must wait.
+         */
+        if (p == NULL ||
+            !resource_available(p) ||
+            !memory_can_allocate(p->mem_req)) {
+            break;
         }
 
-        /* Check resources and memory using first-fit freelist manager */
-        if (memory_can_allocate(p->mem_req) &&
-            printers >= p->printers &&
-            scanners >= p->scanners &&
-            modems >= p->modems &&
-            cd_drives >= p->cds) {
-
-            if (memory_allocate(p) == 0) {
-                /* Reserve resources */
-                printers -= p->printers;
-                scanners -= p->scanners;
-                modems -= p->modems;
-                cd_drives -= p->cds;
-
-                p->state = READY;
-                queue_push(&user_queue[p->init_prio - 1], p);
-            } else {
-                /* allocation failed unexpectedly, put back to waiting */
-                queue_push(&waiting, p);
-            }
-        } else {
-            queue_push(&waiting, p);
+        p = queue_pop(&sub_queue);
+        if (memory_allocate(p) != 0) {
+            /* Allocation should match memory_can_allocate(); stop defensively. */
+            queue_push(&sub_queue, p);
+            break;
         }
-    }
 
-    /* Return waiting processes back to submission queue (preserve order) */
-    while (!queue_empty(&waiting)) {
-        queue_push(&sub_queue, queue_pop(&waiting));
+        resource_occupy(p);
+        p->state = READY;
+        queue_push(&user_queue[p->current_prio - 1], p);
     }
 }
 
@@ -254,43 +245,35 @@ process_t *dispatch(process_t **cur_running_rt) {
 
 //changes cpu_remain value in a process from argument//
 void run_process(process_t *p) {
-    if(p != NULL){
+    if(p != NULL && p->cpu_remain > 0){
         p->cpu_remain--;
     }
 }
 
 
 void post_run(process_t *p, process_t **cur_running_rt) {
-    if(p != NULL){
-        if(p->cpu_remain == 0){
-            //assign TERMINATED state//
-            proc_state_t terminated = TERMINATED;
-            p->state = terminated;
-            
-            //release resource and memory//
-            if(p->current_prio > 0){
-                /* free memory block back to freelist and restore counters */
+    if (p != NULL) {
+        if (p->cpu_remain == 0) {
+            p->state = TERMINATED;
+
+            if (p->current_prio > 0) {
                 memory_free(p);
-                printers += p->printers;
-                scanners += p->scanners;
-                modems += p->modems;
-                cd_drives += p->cds;
+                resource_free(p);
             }
 
-            //it is a real time process//
-            if(*cur_running_rt == p){
+            if (*cur_running_rt == p) {
                 *cur_running_rt = NULL;
             }
-        }else{ //the process is not finished//
+        } else {
             p->state = READY;
 
-            if(p->current_prio > 0 && p->current_prio < 3){ //user process: demotion//
-                p->current_prio+=1;
-                queue_push(&user_queue[p->current_prio - 1], p); //push back to corresponding queue//
-            }else if(p->current_prio == 3){
-                queue_push(&user_queue[p->current_prio - 1], p); //push back to corresponding queue//
-            }else{
-                *cur_running_rt = p; 
+            if (p->current_prio == 0) {
+                *cur_running_rt = p;
+            } else {
+                if (p->current_prio < 3) {
+                    p->current_prio++;
+                }
+                queue_push(&user_queue[p->current_prio - 1], p);
             }
         }
     }
@@ -331,6 +314,10 @@ void memory_init(void) {
 }
 
 int memory_can_allocate(int req_size) {
+    if (req_size <= 0) {
+        return 0;
+    }
+
     free_block_t *cur = freelist;
     while (cur != NULL) {
         if (cur->size >= req_size) return 1;
@@ -365,8 +352,6 @@ int memory_allocate(process_t *p) {
                 cur->start += req;
                 cur->size -= req;
             }
-
-            memory -= req;
             return 0;
         }
         prev = cur;
@@ -413,25 +398,41 @@ int memory_free(process_t *p) {
         cur = cur->next;
     }
 
-    memory += size;
     p->mem_start = 0;
     return 0;
 }
 
 int resource_available(process_t *p) {
-    /* OPTIONAL */
-    (void)p;
-    return 0;
+    if (p == NULL) {
+        return 0;
+    }
+
+    return printers >= p->printers &&
+           scanners >= p->scanners &&
+           modems >= p->modems &&
+           cd_drives >= p->cds;
 }
 
 void resource_occupy(process_t *p) {
-    /* OPTIONAL */
-    (void)p;
+    if (p == NULL) {
+        return;
+    }
+
+    printers -= p->printers;
+    scanners -= p->scanners;
+    modems -= p->modems;
+    cd_drives -= p->cds;
 }
 
 void resource_free(process_t *p) {
-    /* OPTIONAL */
-    (void)p;
+    if (p == NULL) {
+        return;
+    }
+
+    printers += p->printers;
+    scanners += p->scanners;
+    modems += p->modems;
+    cd_drives += p->cds;
 }
 
 
