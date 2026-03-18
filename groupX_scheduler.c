@@ -182,9 +182,7 @@ void arrival(process_t *p) {
 }
 
 void admit_process(void) {
-    static int next_mem_start = 64;
-    queue_t waiting; 
-
+    queue_t waiting;
     queue_init(&waiting);
 
     while (!queue_empty(&sub_queue)) {
@@ -194,33 +192,34 @@ void admit_process(void) {
             continue;
         }
 
-        //check if memory available and resource available//
-        if (memory >= p->mem_req &&
+        /* Check resources and memory using first-fit freelist manager */
+        if (memory_can_allocate(p->mem_req) &&
             printers >= p->printers &&
             scanners >= p->scanners &&
             modems >= p->modems &&
             cd_drives >= p->cds) {
-    
-            p->mem_start = next_mem_start; //stores starting memory address of the process//
-            next_mem_start += p->mem_req; //moves the next free starting address by the amount of memory the process took//
 
-            //take corresponding resource//
-            memory -= p->mem_req;
-            printers -= p->printers;
-            scanners -= p->scanners;
-            modems -= p->modems;
-            cd_drives -= p->cds;
+            if (memory_allocate(p) == 0) {
+                /* Reserve resources */
+                printers -= p->printers;
+                scanners -= p->scanners;
+                modems -= p->modems;
+                cd_drives -= p->cds;
 
-            p->state = READY; //change the state of the process to ready//
-            queue_push(&user_queue[p->init_prio - 1], p); //push the ready process to the user queue//
+                p->state = READY;
+                queue_push(&user_queue[p->init_prio - 1], p);
+            } else {
+                /* allocation failed unexpectedly, put back to waiting */
+                queue_push(&waiting, p);
+            }
         } else {
-            queue_push(&waiting, p); //resources or memory not enough, so put the process in waiting for now//
+            queue_push(&waiting, p);
         }
     }
 
-    //put process in waiting in this tick back to the sub_queue//
-    while (!queue_empty(&waiting)) { 
-        queue_push(&sub_queue, queue_pop(&waiting)); 
+    /* Return waiting processes back to submission queue (preserve order) */
+    while (!queue_empty(&waiting)) {
+        queue_push(&sub_queue, queue_pop(&waiting));
     }
 }
 
@@ -270,7 +269,8 @@ void post_run(process_t *p, process_t **cur_running_rt) {
             
             //release resource and memory//
             if(p->current_prio > 0){
-                memory += p->mem_req;
+                /* free memory block back to freelist and restore counters */
+                memory_free(p);
                 printers += p->printers;
                 scanners += p->scanners;
                 modems += p->modems;
@@ -318,25 +318,104 @@ int termination_check(int processNo, int process_count, process_t *cur_running_r
  * ========================================================= */
 
 void memory_init(void) {
-    /* OPTIONAL */
+    /* Initialize freelist to single user-available block [64, 64+memory-1] */
+    /* free list keeps blocks in ascending start order */
+    freelist = (free_block_t *)malloc(sizeof(free_block_t));
+    if (freelist == NULL) {
+        fprintf(stderr, "memory_init: malloc failed\n");
+        exit(1);
+    }
+    freelist->start = memory_real_time; /* 64 */
+    freelist->size = memory; /* 960 */
+    freelist->next = NULL;
 }
 
 int memory_can_allocate(int req_size) {
-    /* OPTIONAL */
-    (void)req_size;
+    free_block_t *cur = freelist;
+    while (cur != NULL) {
+        if (cur->size >= req_size) return 1;
+        cur = cur->next;
+    }
     return 0;
 }
 
 int memory_allocate(process_t *p) {
-    /* OPTIONAL */
-    (void)p;
-    return -1;
+    if (p == NULL) return -1;
+    int req = p->mem_req;
+    free_block_t *cur = freelist;
+    free_block_t *prev = NULL;
+
+    while (cur != NULL) {
+        if (cur->size >= req) {
+            /* allocate at cur->start */
+            p->mem_start = cur->start;
+
+            if (cur->size == req) {
+                /* remove block from freelist */
+                if (prev == NULL) {
+                    free_block_t *tmp = cur->next;
+                    free(cur);
+                    freelist = tmp;
+                } else {
+                    prev->next = cur->next;
+                    free(cur);
+                }
+            } else {
+                /* shrink block */
+                cur->start += req;
+                cur->size -= req;
+            }
+
+            memory -= req;
+            return 0;
+        }
+        prev = cur;
+        cur = cur->next;
+    }
+    return -1; /* not found */
 }
 
 int memory_free(process_t *p) {
-    /* OPTIONAL */
-    (void)p;
-    return -1;
+    if (p == NULL) return -1;
+    int start = p->mem_start;
+    int size = p->mem_req;
+
+    /* create new free block */
+    free_block_t *nb = (free_block_t *)malloc(sizeof(free_block_t));
+    if (nb == NULL) return -1;
+    nb->start = start;
+    nb->size = size;
+    nb->next = NULL;
+
+    /* insert into freelist in ascending order */
+    if (freelist == NULL || nb->start < freelist->start) {
+        nb->next = freelist;
+        freelist = nb;
+    } else {
+        free_block_t *cur = freelist;
+        while (cur->next != NULL && cur->next->start < nb->start) {
+            cur = cur->next;
+        }
+        nb->next = cur->next;
+        cur->next = nb;
+    }
+
+    /* coalesce adjacent blocks */
+    free_block_t *cur = freelist;
+    while (cur != NULL && cur->next != NULL) {
+        if (cur->start + cur->size == cur->next->start) {
+            free_block_t *tmp = cur->next;
+            cur->size += tmp->size;
+            cur->next = tmp->next;
+            free(tmp);
+            continue; /* check again at same cur */
+        }
+        cur = cur->next;
+    }
+
+    memory += size;
+    p->mem_start = 0;
+    return 0;
 }
 
 int resource_available(process_t *p) {
