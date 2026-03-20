@@ -173,7 +173,7 @@ void arrival(process_t *p) {
         return;
     }
 
-    /* RT jobs become ready immediately; user jobs wait for admission. */
+    //RT jobs become ready immediately; user jobs wait for admission. ALL required resource and memory must be available first//
     if (p->init_prio == 0) {
         p->state = READY;
         p->current_prio = 0;
@@ -191,10 +191,7 @@ void admit_process(void) {
     while (!queue_empty(&sub_queue)) {
         process_t *p = queue_peek(&sub_queue);
 
-        /*
-         * The lab requires FIFO admission at the head of the submission queue.
-         * If the head job cannot be fully admitted yet, later jobs must wait.
-         */
+        //if head job cannot be fully admitted, the jobs after it must wait//
         if (p == NULL ||
             !resource_available(p) ||
             !memory_can_allocate(p->mem_req)) {
@@ -203,7 +200,6 @@ void admit_process(void) {
 
         p = queue_pop(&sub_queue);
         if (memory_allocate(p) != 0) {
-            /* Allocation should match memory_can_allocate(); stop defensively. */
             queue_push(&sub_queue, p);
             break;
         }
@@ -253,6 +249,8 @@ void run_process(process_t *p) {
 
 void post_run(process_t *p, process_t **cur_running_rt) {
     if (p != NULL) {
+
+        //the process has finished executing//
         if (p->cpu_remain == 0) {
             p->state = TERMINATED;
 
@@ -264,7 +262,7 @@ void post_run(process_t *p, process_t **cur_running_rt) {
             if (*cur_running_rt == p) {
                 *cur_running_rt = NULL;
             }
-        } else {
+        } else { //not finished -> back to ready//
             p->state = READY;
 
             if (p->current_prio == 0) {
@@ -289,7 +287,8 @@ int termination_check(int processNo, int process_count, process_t *cur_running_r
         queue_empty(&user_queue[0]) &&
         queue_empty(&user_queue[1]) &&
         queue_empty(&user_queue[2])
-    ){ return 1; 
+    ){ 
+        return 1; 
     } else {
         return 0;
     }
